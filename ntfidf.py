@@ -1,4 +1,3 @@
-import os
 import math
 import re
 from collections import Counter
@@ -10,43 +9,50 @@ except ImportError:
     raise ImportError("Please install python-docx: pip install python-docx")
 
 # -----------------------------
-# STOPWORDS (IMPORTANT FIX 🔥)
+# CONFIG 🔥
+# -----------------------------
+DEBUG_MODE = True   # Toggle ON/OFF for testing
+STRICT_MODE = True  # Harder scoring
+
+# -----------------------------
+# STOPWORDS
 # -----------------------------
 STOPWORDS = set([
     "the", "and", "to", "of", "in", "a", "is", "for", "on", "with",
-    "that", "by", "as", "at", "from", "it", "an", "be", "this"
+    "that", "by", "as", "at", "from", "it", "an", "be", "this",
+    "you", "your"
 ])
 
 # -----------------------------
-# 1. Load DOCX file
+# LOAD DOCX
 # -----------------------------
 def load_docx(file_path: str) -> str:
     doc = docx.Document(file_path)
-    return "\n".join([para.text for para in doc.paragraphs]).lower()
+    return "\n".join([p.text for p in doc.paragraphs]).lower()
 
 # -----------------------------
-# 2. Tokenization (FIXED)
+# TOKENIZE
 # -----------------------------
 def tokenize(text: str) -> List[str]:
-    words = re.findall(r"\b[a-zA-Z]+\b", text.lower())
+    words = re.findall(r"\b[a-zA-Z]+\b", text)
     return [w for w in words if w not in STOPWORDS]
 
 # -----------------------------
-# 3. N-grams (BIGRAM + TRIGRAM 🔥)
+# NGRAMS
 # -----------------------------
 def generate_ngrams(tokens: List[str], n=2):
     return [" ".join(tokens[i:i+n]) for i in range(len(tokens)-n+1)]
 
 # -----------------------------
-# 4. TF
+# TF
 # -----------------------------
 def compute_tf(tokens: List[str]) -> dict:
     tf = Counter(tokens)
     total = len(tokens)
-    return {word: count / total for word, count in tf.items()}
+    return {k: v / total for k, v in tf.items()}
 
 # -----------------------------
-# 5. IDF (FIXED SMOOTHING)
+# IDF
 # -----------------------------
 def compute_idf(docs_tokens: List[List[str]]) -> dict:
     N = len(docs_tokens)
@@ -61,56 +67,45 @@ def compute_idf(docs_tokens: List[List[str]]) -> dict:
     return idf
 
 # -----------------------------
-# 6. TF-IDF
+# TF-IDF
 # -----------------------------
 def compute_tfidf(tf: dict, idf: dict) -> dict:
-    return {word: tf[word] * idf.get(word, 0) for word in tf}
+    return {k: tf[k] * idf.get(k, 0) for k in tf}
 
 # -----------------------------
-# 7. INTENT SCORE (FIXED 🔥🔥🔥)
+# INTENT SCORE
 # -----------------------------
 def intent_score(tfidf: dict, intent_keywords: List[str]) -> float:
     score = 0
-    matched = set()
 
     for keyword in intent_keywords:
         keyword = keyword.lower()
 
-        # Exact match (priority)
         if keyword in tfidf:
             score += tfidf[keyword] * 2
-            matched.add(keyword)
         else:
-            # Partial match (only if full not matched)
             parts = keyword.split()
             part_score = sum(tfidf.get(p, 0) for p in parts)
+            score += part_score * 0.5
 
-            if part_score > 0:
-                score += part_score * 0.5
-                matched.add(keyword)
-
-    # Normalize by number of keywords
     return score / len(intent_keywords)
 
 # -----------------------------
-# 8. LLM SCORE (FIXED LOGIC)
+# LLM SCORE
 # -----------------------------
 def llm_score(text: str, tokens: List[str], intent_keywords: List[str]):
     word_count = len(tokens)
     unique_words = len(set(tokens))
 
-    # Better keyword coverage
-    keyword_hits = sum(1 for k in intent_keywords if k.lower() in text)
+    keyword_hits = sum(1 for k in intent_keywords if k in text)
     keyword_coverage = keyword_hits / len(intent_keywords)
 
     vocab_richness = unique_words / word_count if word_count else 0
 
-    # Structure
-    headings = [line for line in text.split("\n") if len(line.split()) < 10]
-    heading_count = len(headings)
-
     sections = text.split("\n\n")
     avg_section_length = sum(len(s.split()) for s in sections) / len(sections) if sections else 0
+
+    heading_count = len([line for line in text.split("\n") if len(line.split()) < 10])
 
     score = 0
 
@@ -130,13 +125,22 @@ def llm_score(text: str, tokens: List[str], intent_keywords: List[str]):
     if heading_count > 5:
         score += 20
 
-    # Chunking (FIXED: reward medium length, not tiny)
+    # Chunking
     if 40 <= avg_section_length <= 150:
         score += 30
     elif avg_section_length < 40:
         score += 10
 
-    return min(score, 100), {
+    # STRICT MODE PENALTIES 🔥
+    if STRICT_MODE:
+        if keyword_coverage < 0.3:
+            score -= 15
+        if avg_section_length < 40:
+            score -= 20
+        if not any(x in text for x in ["buy", "sale", "supplier"]):
+            score -= 15
+
+    return max(min(score, 100), 0), {
         "keyword_coverage": keyword_coverage,
         "vocab_richness": vocab_richness,
         "avg_section_length": avg_section_length,
@@ -144,23 +148,21 @@ def llm_score(text: str, tokens: List[str], intent_keywords: List[str]):
     }
 
 # -----------------------------
-# 9. BENCHMARKS
+# BENCHMARKS (STRICT)
 # -----------------------------
 BENCHMARKS = {
-    "intent": 75,
-    "llm": 70
+    "intent": 90 if STRICT_MODE else 75,
+    "llm": 85 if STRICT_MODE else 70
 }
 
 # -----------------------------
-# 10. MAIN ANALYZER
+# ANALYZER
 # -----------------------------
 def analyze_document(doc_path: str, intent_keywords: List[str]):
     print("\n📄 Loading document...")
     text = load_docx(doc_path)
 
     tokens = tokenize(text)
-
-    # 🔥 ADD BIGRAM + TRIGRAM
     bigrams = generate_ngrams(tokens, 2)
     trigrams = generate_ngrams(tokens, 3)
 
@@ -172,11 +174,15 @@ def analyze_document(doc_path: str, intent_keywords: List[str]):
 
     intent = intent_score(tfidf, intent_keywords)
 
-    # FIXED normalization
     max_possible = max(tfidf.values()) if tfidf else 1
     normalized_intent = (intent / max_possible) * 100
 
     llm_opt_score, diagnostics = llm_score(text, tokens, intent_keywords)
+
+    # DEBUG MODE (SIMULATE BAD SCORES)
+    if DEBUG_MODE:
+        normalized_intent *= 0.5
+        llm_opt_score *= 0.6
 
     print("\n📊 RESULTS:")
     print(f"Target Intent Score: {BENCHMARKS['intent']}%")
@@ -192,7 +198,7 @@ def analyze_document(doc_path: str, intent_keywords: List[str]):
     print("\n🧠 FINAL CONCLUSION:")
 
     if normalized_intent >= BENCHMARKS['intent'] and llm_opt_score >= BENCHMARKS['llm']:
-        print("✅ Excellent: Fully optimized for SEO + LLMs")
+        print("✅ Excellent: Fully optimized")
     elif normalized_intent >= 50 and llm_opt_score >= 50:
         print("⚠️ Moderate: Needs improvement")
     else:
@@ -203,9 +209,9 @@ def analyze_document(doc_path: str, intent_keywords: List[str]):
     print(f"LLM Gap: {BENCHMARKS['llm'] - llm_opt_score:.2f}%")
 
     if (BENCHMARKS['intent'] - normalized_intent) > (BENCHMARKS['llm'] - llm_opt_score):
-        print("👉 Fix Priority: Improve keyword + intent coverage")
+        print("👉 Fix Priority: Improve keyword coverage")
     else:
-        print("👉 Fix Priority: Improve structure (headings, chunking, clarity)")
+        print("👉 Fix Priority: Improve structure")
 
     print("\n🔥 Top Important Terms:")
     top_terms = sorted(tfidf.items(), key=lambda x: x[1], reverse=True)[:10]
@@ -214,32 +220,18 @@ def analyze_document(doc_path: str, intent_keywords: List[str]):
 
 
 # -----------------------------
-# 11. RUN
+# RUN
 # -----------------------------
 if __name__ == "__main__":
     doc_path = "sample.docx"
 
     intent_keywords = [
         "wooden access mats",
-        "access mats for construction",
-        "how to choose access mats",
         "wood mats for sale",
-        "timber mats for sale",
-        "heavy duty access mats",
-        "3 ply wooden access mats",
-        "ground protection mats",
-        "temporary access mats",
-        "construction mats for soft ground",
-        "mats for wetlands",
-        "load bearing access mats",
         "access mats supplier",
         "buy wooden access mats",
-        "durable timber mats",
-        "equipment access solutions",
-        "site access solutions",
-        "construction site stability",
-        "crane mats for heavy equipment",
-        "industrial access mats"
+        "ground protection mats",
+        "crane mats"
     ]
 
     analyze_document(doc_path, intent_keywords)
