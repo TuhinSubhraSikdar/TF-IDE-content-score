@@ -1,58 +1,50 @@
 # 🔒 Virtual Environment
-
 .venv/
 venv/
 env/
 
 # 🐍 Python Cache
-
-**pycache**/
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
 
 # 📦 Distribution / Packaging
-
 build/
 dist/
 *.egg-info/
 .eggs/
 
 # 📝 Logs
-
 *.log
 
 # 🔑 Environment Variables
-
 .env
 .env.*
 
 # 📊 Jupyter / Notebook (if you use later)
-
 .ipynb_checkpoints/
 
 # 🧪 Testing / Coverage
-
 .coverage
 htmlcov/
 .pytest_cache/
 
 # 🖥️ OS Files
-
 .DS_Store
 Thumbs.db
 
 # 🧰 IDE / Editor
-
 .vscode/
 .idea/
 
 # 📄 Temporary Files
-
 *.tmp
 *.bak
 
 # 📂 Your Generated Outputs (optional)
-
 reports/
 outputs/
+
+# 📄 DOCX files (Word documents)
+*.docx
